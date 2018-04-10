@@ -5,6 +5,7 @@ import (
 	"context"
 	"time"
 	"encoding/binary"
+	"strconv"
 )
 
 type limit struct {
@@ -32,7 +33,7 @@ func (l limit) Limited(ctx context.Context, id string) bool {
 	beforeCounter := l.getCounter(id, before.Minute())
 
 	sixty := uint64(60)
-	rate := beforeCounter * ((sixty - uint64(now.Second())) / sixty) + nowCounter
+	rate := (beforeCounter * ((sixty - uint64(now.Second())) / sixty)) + nowCounter
 
 	if rate > l.max {
 		l.mitigate(id)
@@ -62,7 +63,7 @@ func (l limit) createKey(id string) string {
 }
 
 func (l limit) getCounter(id string, minute int) uint64 {
-	key := l.createKey(id) + ":" + string(minute)
+	key := l.createKey(id) + ":" + strconv.Itoa(minute)
 	res, err := memcache.Get(l.context, key)
 	if err == memcache.ErrCacheMiss {
 		return 0
@@ -72,6 +73,6 @@ func (l limit) getCounter(id string, minute int) uint64 {
 }
 
 func (l limit) setCounter(id string, minute int) {
-	key := l.createKey(id) + ":" + string(minute)
+	key := l.createKey(id) + ":" + strconv.Itoa(minute)
 	memcache.Increment(l.context, key, int64(1), uint64(0))
 }
