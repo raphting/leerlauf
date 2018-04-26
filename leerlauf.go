@@ -4,8 +4,8 @@ import (
 	"google.golang.org/appengine/memcache"
 	"context"
 	"time"
-	"encoding/binary"
 	"strconv"
+	"google.golang.org/appengine/log"
 )
 
 type limit struct {
@@ -33,7 +33,9 @@ func (l limit) Limited(ctx context.Context, id string) bool {
 	beforeCounter := l.getCounter(id, before.Minute())
 
 	sixty := uint64(60)
-	rate := (beforeCounter * ((sixty - uint64(now.Second())) / sixty)) + nowCounter
+	rate := uint64(beforeCounter * ((sixty - uint64(now.Second())) / sixty) + nowCounter)
+
+	log.Infof(ctx, "BeforeCounter: %v, nowSecond: %v, nowCounter: %v, Rate: %v", beforeCounter, now.Second(), nowCounter, rate)
 
 	if rate > l.max {
 		l.mitigate(id)
@@ -64,15 +66,24 @@ func (l limit) createKey(id string) string {
 
 func (l limit) getCounter(id string, minute int) uint64 {
 	key := l.createKey(id) + ":" + strconv.Itoa(minute)
-	res, err := memcache.Get(l.context, key)
+	res, err := memcache.Increment(l.context, key, int64(0), uint64(1))
 	if err == memcache.ErrCacheMiss {
 		return 0
 	}
-	count, _ := binary.Uvarint(res.Value)
-	return count
+
+	if err != nil && err != memcache.ErrCacheMiss {
+		log.Errorf(l.context, "Error on reading Counter: %v", err)
+	}
+
+	return res
 }
 
 func (l limit) setCounter(id string, minute int) {
 	key := l.createKey(id) + ":" + strconv.Itoa(minute)
-	memcache.Increment(l.context, key, int64(1), uint64(0))
+	log.Infof(l.context, "Key: %v", key)
+	my, err := memcache.Increment(l.context, key, int64(1), uint64(1))
+	if err != nil {
+		log.Errorf(l.context, "Error on incrementing Counter: %v", err)
+	}
+	log.Infof(l.context, "New value: %v", my)
 }
