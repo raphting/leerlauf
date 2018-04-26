@@ -6,6 +6,8 @@ import (
 	"time"
 	"strconv"
 	"google.golang.org/appengine/log"
+	"github.com/pkg/errors"
+	"fmt"
 )
 
 type limit struct {
@@ -14,9 +16,14 @@ type limit struct {
 	max uint64
 }
 
-// TODO key must not be longer than 250 bytes in total according to docs
-func NewLimit(description string, max uint64) *limit {
-	return &limit{description: description, max: max}
+func NewLimit(description string, max uint64) (*limit, error) {
+	const maxBytes = 248
+	if len(description) > maxBytes {
+		return nil, errors.New(
+			fmt.Sprintf("Max amount of bytes for description is %v bytes. Got %v bytes.",
+				maxBytes, len(description)))
+	}
+	return &limit{description: description, max: max}, nil
 }
 
 func (l limit) Limited(ctx context.Context, id string) bool {
@@ -34,8 +41,6 @@ func (l limit) Limited(ctx context.Context, id string) bool {
 
 	sixty := uint64(60)
 	rate := uint64(beforeCounter * ((sixty - uint64(now.Second())) / sixty) + nowCounter)
-
-	log.Infof(ctx, "BeforeCounter: %v, nowSecond: %v, nowCounter: %v, Rate: %v", beforeCounter, now.Second(), nowCounter, rate)
 
 	if rate > l.max {
 		l.mitigate(id)
