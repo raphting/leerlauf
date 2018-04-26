@@ -1,20 +1,21 @@
 package leerlauf
 
 import (
-	"google.golang.org/appengine/memcache"
 	"context"
-	"time"
-	"strconv"
-	"google.golang.org/appengine/log"
-	"github.com/pkg/errors"
+	"errors"
 	"fmt"
+	"google.golang.org/appengine/memcache"
+	"strconv"
+	"time"
 )
 
 type limit struct {
 	description string
-	context context.Context
-	max uint64
+	context     context.Context
+	max         uint64
 }
+
+var ErrMitigated = errors.New("Access mitigated")
 
 func NewLimit(description string, max uint64) (*limit, error) {
 	const maxBytes = 248
@@ -26,69 +27,91 @@ func NewLimit(description string, max uint64) (*limit, error) {
 	return &limit{description: description, max: max}, nil
 }
 
-func (l limit) Limited(ctx context.Context, id string) bool {
+func (l limit) Limited(ctx context.Context, id string) error {
 	l.context = ctx
 
-	if l.isMitigated(id) {
-		return true
+	m, err := l.isMitigated(id)
+	if err != nil {
+		return err
+	}
+
+	if m {
+		return ErrMitigated
 	}
 
 	now := time.Now()
 	before := now.Add(-1 * time.Minute)
 
-	nowCounter := l.getCounter(id, now.Minute())
-	beforeCounter := l.getCounter(id, before.Minute())
-
-	sixty := uint64(60)
-	rate := uint64(beforeCounter * ((sixty - uint64(now.Second())) / sixty) + nowCounter)
-
-	if rate > l.max {
-		l.mitigate(id)
-		return true
+	nowCounter, err := l.getCounter(id, now.Minute())
+	if err != nil {
+		return err
 	}
 
-	l.setCounter(id, now.Minute())
-	return false
+	beforeCounter, err := l.getCounter(id, before.Minute())
+	if err != nil {
+		return err
+	}
+
+	sixty := uint64(60)
+	rate := uint64(beforeCounter*((sixty-uint64(now.Second()))/sixty) + nowCounter)
+
+	if rate > l.max {
+		err = l.mitigate(id)
+		if err != nil {
+			return err
+		}
+		return ErrMitigated
+	}
+
+	err = l.setCounter(id, now.Minute())
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
-func (l limit) mitigate(id string) {
-	memcache.Set(l.context, &memcache.Item{
-		Key: l.createKey(id) + ":mitigated",
-		Value: []byte{1},
+func (l limit) mitigate(id string) error {
+	return memcache.Set(l.context, &memcache.Item{
+		Key:        l.createKey(id) + ":mitigated",
+		Value:      []byte{1},
 		Expiration: time.Minute,
 	})
 }
 
-func (l limit) isMitigated(id string) bool {
+func (l limit) isMitigated(id string) (bool, error) {
 	key := l.createKey(id) + ":mitigated"
 	_, err := memcache.Get(l.context, key)
-	return err != memcache.ErrCacheMiss
+	if err == memcache.ErrCacheMiss {
+		return false, nil
+	}
+
+	if err == nil {
+		return true, nil
+	}
+
+	return true, err
 }
 
 func (l limit) createKey(id string) string {
 	return l.description + id
 }
 
-func (l limit) getCounter(id string, minute int) uint64 {
+func (l limit) getCounter(id string, minute int) (uint64, error) {
 	key := l.createKey(id) + ":" + strconv.Itoa(minute)
 	res, err := memcache.Increment(l.context, key, int64(0), uint64(1))
 	if err == memcache.ErrCacheMiss {
-		return 0
+		return 0, nil
 	}
 
 	if err != nil && err != memcache.ErrCacheMiss {
-		log.Errorf(l.context, "Error on reading Counter: %v", err)
+		return 0, err
 	}
 
-	return res
+	return res, nil
 }
 
-func (l limit) setCounter(id string, minute int) {
+func (l limit) setCounter(id string, minute int) error {
 	key := l.createKey(id) + ":" + strconv.Itoa(minute)
-	log.Infof(l.context, "Key: %v", key)
-	my, err := memcache.Increment(l.context, key, int64(1), uint64(1))
-	if err != nil {
-		log.Errorf(l.context, "Error on incrementing Counter: %v", err)
-	}
-	log.Infof(l.context, "New value: %v", my)
+	_, err := memcache.Increment(l.context, key, int64(1), uint64(1))
+	return err
 }
