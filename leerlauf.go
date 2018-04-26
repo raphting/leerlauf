@@ -20,6 +20,8 @@ var ErrMitigated = errors.New("Access mitigated")
 const mitigated = ":mitigated"
 const maxMemcacheKey = 250
 
+// NewLimit receives a unique description and the maximum hits
+// per minute before mitigation starts for a given id.
 func NewLimit(description string, max uint64) (*limit, error) {
 	const maxBytes = 248
 	if len(description) > maxBytes {
@@ -30,6 +32,9 @@ func NewLimit(description string, max uint64) (*limit, error) {
 	return &limit{description: description, max: max}, nil
 }
 
+// Limited returns nil if given id did not exceed the limit.
+// For mitigations it returns ErrMitigated, else errors from
+// datastore that might bubble up.
 func (l limit) Limited(ctx context.Context, id string) error {
 	l.context = ctx
 
