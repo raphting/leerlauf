@@ -17,6 +17,9 @@ type limit struct {
 
 var ErrMitigated = errors.New("Access mitigated")
 
+const mitigated = ":mitigated"
+const maxMemcacheKey = 250
+
 func NewLimit(description string, max uint64) (*limit, error) {
 	const maxBytes = 248
 	if len(description) > maxBytes {
@@ -29,6 +32,16 @@ func NewLimit(description string, max uint64) (*limit, error) {
 
 func (l limit) Limited(ctx context.Context, id string) error {
 	l.context = ctx
+
+	if len(id)+len(l.description)+1 > maxMemcacheKey {
+		return errors.New(
+			"Sum of given id plus description is too long")
+	}
+
+	if len(id)+len(mitigated) > maxMemcacheKey {
+		return errors.New(
+			"Given id is too long")
+	}
 
 	m, err := l.isMitigated(id)
 	if err != nil {
@@ -72,14 +85,14 @@ func (l limit) Limited(ctx context.Context, id string) error {
 
 func (l limit) mitigate(id string) error {
 	return memcache.Set(l.context, &memcache.Item{
-		Key:        l.createKey(id) + ":mitigated",
+		Key:        l.createKey(id) + mitigated,
 		Value:      []byte{1},
 		Expiration: time.Minute,
 	})
 }
 
 func (l limit) isMitigated(id string) (bool, error) {
-	key := l.createKey(id) + ":mitigated"
+	key := l.createKey(id) + mitigated
 	_, err := memcache.Get(l.context, key)
 	if err == memcache.ErrCacheMiss {
 		return false, nil
