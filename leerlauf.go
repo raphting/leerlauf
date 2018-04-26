@@ -15,6 +15,7 @@ type limit struct {
 	max         int
 }
 
+// ErrMitigated is returned on a successful mitigation
 var ErrMitigated = errors.New("Access mitigated")
 
 const mitigated = ":mitigated"
@@ -25,9 +26,7 @@ const maxMemcacheKey = 250
 func NewLimit(description string, maxHits int) (*limit, error) {
 	const maxBytes = 248
 	if len(description) > maxBytes {
-		return nil, errors.New(
-			fmt.Sprintf("Max amount of bytes for description is %v bytes. Got %v bytes.",
-				maxBytes, len(description)))
+		return nil, fmt.Errorf("Max len for description is %v bytes. Got %v bytes.",	maxBytes, len(description))
 	}
 	return &limit{description: description, max: maxHits}, nil
 }
