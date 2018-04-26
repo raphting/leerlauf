@@ -12,7 +12,7 @@ import (
 type limit struct {
 	description string
 	context     context.Context
-	max         uint64
+	max         int
 }
 
 var ErrMitigated = errors.New("Access mitigated")
@@ -22,14 +22,14 @@ const maxMemcacheKey = 250
 
 // NewLimit receives a unique description and the maximum hits
 // per minute before mitigation starts for a given id.
-func NewLimit(description string, max uint64) (*limit, error) {
+func NewLimit(description string, maxHits int) (*limit, error) {
 	const maxBytes = 248
 	if len(description) > maxBytes {
 		return nil, errors.New(
 			fmt.Sprintf("Max amount of bytes for description is %v bytes. Got %v bytes.",
 				maxBytes, len(description)))
 	}
-	return &limit{description: description, max: max}, nil
+	return &limit{description: description, max: maxHits}, nil
 }
 
 // Limited returns nil if given id did not exceed the limit.
@@ -70,8 +70,7 @@ func (l limit) Limited(ctx context.Context, id string) error {
 		return err
 	}
 
-	sixty := uint64(60)
-	rate := uint64(beforeCounter*((sixty-uint64(now.Second()))/sixty) + nowCounter)
+	rate := beforeCounter*((60-now.Second())/60.0) + nowCounter
 
 	if rate > l.max {
 		err = l.mitigate(id)
@@ -114,7 +113,7 @@ func (l limit) createKey(id string) string {
 	return l.description + id
 }
 
-func (l limit) getCounter(id string, minute int) (uint64, error) {
+func (l limit) getCounter(id string, minute int) (int, error) {
 	key := l.createKey(id) + ":" + strconv.Itoa(minute)
 	res, err := memcache.Increment(l.context, key, int64(0), uint64(1))
 	if err == memcache.ErrCacheMiss {
@@ -125,7 +124,7 @@ func (l limit) getCounter(id string, minute int) (uint64, error) {
 		return 0, err
 	}
 
-	return res, nil
+	return int(res), nil
 }
 
 func (l limit) setCounter(id string, minute int) error {
