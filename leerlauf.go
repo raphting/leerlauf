@@ -37,7 +37,7 @@ func NewLimit(description string, maxHits int) (*limit, error) {
 func (l limit) Limited(ctx context.Context, id string) error {
 	l.context = ctx
 
-	if len(id)+len(l.description)+1 > maxMemcacheKey {
+	if len(id)+len(l.description)+3 > maxMemcacheKey {
 		return errors.New(
 			"Sum of given id plus description is too long")
 	}
