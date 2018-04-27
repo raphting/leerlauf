@@ -24,7 +24,7 @@ const maxMemcacheKey = 250
 // NewLimit receives a unique description and the maximum hits
 // per minute before mitigation starts for a given id.
 func NewLimit(description string, maxHits int) (*limit, error) {
-	const maxBytes = 248
+	const maxBytes = 245
 	if len(description) > maxBytes {
 		return nil, fmt.Errorf("Max len for description is %v bytes. Got %v bytes.",	maxBytes, len(description))
 	}
@@ -79,7 +79,7 @@ func (l limit) Limited(ctx context.Context, id string) error {
 		return ErrMitigated
 	}
 
-	err = l.setCounter(id, now.Minute())
+	err = l.incCounter(id, now.Minute())
 	if err != nil {
 		return err
 	}
@@ -126,7 +126,7 @@ func (l limit) getCounter(id string, minute int) (int, error) {
 	return int(res), nil
 }
 
-func (l limit) setCounter(id string, minute int) error {
+func (l limit) incCounter(id string, minute int) error {
 	key := l.createKey(id) + ":" + strconv.Itoa(minute)
 	_, err := memcache.Increment(l.context, key, int64(1), uint64(1))
 	return err
